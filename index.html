@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>蜜雪冰城700米保护圈地图</title>
+  <title>品牌覆盖范围检测工具</title>
 
   <style>
     html, body, #map {
@@ -26,52 +26,60 @@
     input, button {
       height: 30px;
       margin: 4px;
+      width: 180px;
     }
 
     #result {
       margin-top: 8px;
       line-height: 1.6;
-      max-width: 260px;
+      max-width: 300px;
     }
   </style>
 
-  <!-- 这里填你的安全密钥 -->
   <script>
     window._AMapSecurityConfig = {
       securityJsCode: "1bfe2616169779ee7c350d5299c441b8"
     };
   </script>
 
-  <!-- 这里填你的 JSAPIKey -->
   <script src="https://webapi.amap.com/maps?v=2.0&key=233bf77ae060be738d6e2caf902ecdbf&plugin=AMap.PlaceSearch,AMap.GeometryUtil"></script>
 </head>
 
 <body>
   <div id="panel">
     <div>
-      城市：
+      城市：<br>
       <input id="city" value="郑州市" />
     </div>
 
     <div>
-      品牌：
+      检索中心地点：<br>
+      <input id="centerPlace" placeholder="例如：二七万达、某某村、某商店" />
+    </div>
+
+    <div>
+      品牌：<br>
       <input id="keyword" value="蜜雪冰城" />
     </div>
 
     <div>
-      半径：
+      检索范围：<br>
+      <input id="searchRadius" value="3000" /> 米
+    </div>
+
+    <div>
+      保护半径：<br>
       <input id="radius" value="700" /> 米
     </div>
 
     <button onclick="searchStores()">检测覆盖范围</button>
 
-    <div id="result">点击“检测覆盖范围”开始</div>
+    <div id="result">输入城市和地点后，点击检测覆盖范围</div>
   </div>
 
   <div id="map"></div>
 
   <script>
-    // 初始化地图
     let map = new AMap.Map("map", {
       zoom: 12,
       center: [113.625351, 34.746303]
@@ -81,28 +89,22 @@
     let circles = [];
     let stores = [];
     let testMarker = null;
+    let centerMarker = null;
 
-    // 清空地图上的旧门店和旧圆圈
     function clearMap() {
-      markers.forEach(marker => {
-        map.remove(marker);
-      });
+      markers.forEach(marker => map.remove(marker));
+      circles.forEach(circle => map.remove(circle));
 
-      circles.forEach(circle => {
-        map.remove(circle);
-      });
+      if (testMarker) map.remove(testMarker);
+      if (centerMarker) map.remove(centerMarker);
 
       markers = [];
       circles = [];
       stores = [];
-
-      if (testMarker) {
-        map.remove(testMarker);
-        testMarker = null;
-      }
+      testMarker = null;
+      centerMarker = null;
     }
 
-    // 根据地图缩放级别，控制是否显示店名
     function updateLabels() {
       const zoom = map.getZoom();
 
@@ -128,23 +130,116 @@
       });
     }
 
-    // 监听地图缩放：放大到15级以上才显示店名
     map.on("zoomend", function () {
       updateLabels();
     });
 
-    // 搜索门店，并画保护圈
     function searchStores() {
       clearMap();
 
-      const city = document.getElementById("city").value;
-      const keyword = document.getElementById("keyword").value;
+      const city = document.getElementById("city").value.trim();
+      const centerPlace = document.getElementById("centerPlace").value.trim();
+      const keyword = document.getElementById("keyword").value.trim();
       const radius = Number(document.getElementById("radius").value);
+      const searchRadius = Number(document.getElementById("searchRadius").value);
 
-      document.getElementById("result").innerHTML = "正在搜索，请稍等...";
+      document.getElementById("result").innerHTML = "正在检索，请稍等...";
 
       map.setCity(city);
 
+      if (centerPlace) {
+        searchByCenterPlace(city, centerPlace, keyword, searchRadius, radius);
+      } else {
+        searchByCity(city, keyword, radius);
+      }
+    }
+
+    function searchByCenterPlace(city, centerPlace, keyword, searchRadius, radius) {
+      const placeSearch = new AMap.PlaceSearch({
+        city: city,
+        citylimit: true,
+        pageSize: 10,
+        pageIndex: 1
+      });
+
+      placeSearch.search(centerPlace, function(status, result) {
+        if (status !== "complete" || !result.poiList || result.poiList.pois.length === 0) {
+          document.getElementById("result").innerHTML = "没有找到这个中心地点，请换个名称试试";
+          return;
+        }
+
+        const centerPoi = result.poiList.pois[0];
+        const centerLng = centerPoi.location.lng;
+        const centerLat = centerPoi.location.lat;
+        const centerLngLat = new AMap.LngLat(centerLng, centerLat);
+
+        centerMarker = new AMap.Marker({
+          position: centerLngLat,
+          map: map,
+          title: centerPoi.name,
+          icon: "https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
+          offset: new AMap.Pixel(-10, -28)
+        });
+
+        centerMarker.setLabel({
+          direction: "top",
+          offset: new AMap.Pixel(0, -5),
+          content: `<div style="
+            background:white;
+            border:1px solid #1890ff;
+            padding:3px 6px;
+            border-radius:4px;
+            font-size:12px;
+            color:#005bbb;
+            white-space:nowrap;
+          ">检索中心：${centerPoi.name}</div>`
+        });
+
+        const centerInfoWindow = new AMap.InfoWindow({
+          content: `
+            <div style="font-size:14px;line-height:1.6;">
+              <b>检索中心：${centerPoi.name}</b><br/>
+              地址：${centerPoi.address || "暂无地址"}<br/>
+              经纬度：${centerLng}, ${centerLat}
+            </div>
+          `,
+          offset: new AMap.Pixel(0, -28)
+        });
+
+        centerMarker.on("click", function () {
+          centerInfoWindow.open(map, centerMarker.getPosition());
+        });
+
+        const brandSearch = new AMap.PlaceSearch({
+          city: city,
+          citylimit: true,
+          pageSize: 50,
+          pageIndex: 1
+        });
+
+        brandSearch.searchNearBy(keyword, centerLngLat, searchRadius, function(status, result) {
+          if (status !== "complete" || !result.poiList || !result.poiList.pois.length) {
+            document.getElementById("result").innerHTML =
+              "已找到中心地点：" + centerPoi.name + "<br>" +
+              "但在周边 " + searchRadius + " 米内没有找到：" + keyword;
+            map.setZoomAndCenter(15, centerLngLat);
+            return;
+          }
+
+          drawStores(result.poiList.pois, radius);
+
+          map.setFitView([centerMarker, ...markers]);
+
+          document.getElementById("result").innerHTML =
+            "检索中心：" + centerPoi.name + "<br>" +
+            "检索范围：" + searchRadius + " 米<br>" +
+            "已找到 " + stores.length + " 个 " + keyword + "<br>" +
+            "点击地图任意位置，可检测是否落入保护圈。";
+        });
+      });
+    }
+
+    function searchByCity(city, keyword, radius) {
       const placeSearch = new AMap.PlaceSearch({
         city: city,
         citylimit: true,
@@ -153,86 +248,80 @@
       });
 
       placeSearch.search(keyword, function(status, result) {
-        if (status !== "complete" || !result.poiList || !result.poiList.pois) {
-          alert("没有搜到门店，请检查城市或品牌名称");
-          document.getElementById("result").innerHTML = "没有搜到门店";
+        if (status !== "complete" || !result.poiList || !result.poiList.pois.length) {
+          document.getElementById("result").innerHTML = "没有搜到门店，请检查城市或品牌名称";
           return;
         }
 
-        const pois = result.poiList.pois;
-
-        pois.forEach(poi => {
-          const lng = poi.location.lng;
-          const lat = poi.location.lat;
-
-          stores.push({
-            name: poi.name,
-            address: poi.address,
-            lng: lng,
-            lat: lat
-          });
-
-          // 小一点、好看一点的红色箭头
-          const marker = new AMap.Marker({
-            position: [lng, lat],
-            title: poi.name,
-            map: map,
-
-            icon: new AMap.Icon({
-              image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png",
-              size: new AMap.Size(20, 28),
-              imageSize: new AMap.Size(20, 28)
-            }),
-
-            offset: new AMap.Pixel(-10, -28)
-          });
-
-          // 点击红色箭头，显示具体门店信息
-          const infoWindow = new AMap.InfoWindow({
-            content: `
-              <div style="font-size:14px;line-height:1.6;">
-                <b>${poi.name}</b><br/>
-                地址：${poi.address || "暂无地址"}<br/>
-                经纬度：${lng}, ${lat}
-              </div>
-            `,
-            offset: new AMap.Pixel(0, -28)
-          });
-
-          marker.on("click", function () {
-            infoWindow.open(map, marker.getPosition());
-          });
-
-          // 画700米保护圈
-          const circle = new AMap.Circle({
-            center: new AMap.LngLat(lng, lat),
-            radius: radius,
-            strokeColor: "#ff0000",
-            strokeWeight: 2,
-            strokeOpacity: 0.8,
-            fillColor: "#ff0000",
-            fillOpacity: 0.15,
-            zIndex: 50
-          });
-
-          map.add(circle);
-
-          markers.push(marker);
-          circles.push(circle);
-        });
+        drawStores(result.poiList.pois, radius);
 
         map.setFitView(markers);
 
-        updateLabels();
-
         document.getElementById("result").innerHTML =
-          "已找到 " + stores.length + " 个地点。<br>" +
-          "放大地图后会显示门店名称。<br>" +
+          "已在 " + city + " 找到 " + stores.length + " 个 " + keyword + "<br>" +
           "点击地图任意位置，可检测是否落入保护圈。";
       });
     }
 
-    // 点击地图，检测选址点是否落入保护圈
+    function drawStores(pois, radius) {
+      pois.forEach(poi => {
+        const lng = poi.location.lng;
+        const lat = poi.location.lat;
+
+        stores.push({
+          name: poi.name,
+          address: poi.address,
+          lng: lng,
+          lat: lat
+        });
+
+        const marker = new AMap.Marker({
+          position: [lng, lat],
+          title: poi.name,
+          map: map,
+          icon: new AMap.Icon({
+            image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png",
+            size: new AMap.Size(20, 28),
+            imageSize: new AMap.Size(20, 28)
+          }),
+          offset: new AMap.Pixel(-10, -28)
+        });
+
+        const infoWindow = new AMap.InfoWindow({
+          content: `
+            <div style="font-size:14px;line-height:1.6;">
+              <b>${poi.name}</b><br/>
+              地址：${poi.address || "暂无地址"}<br/>
+              经纬度：${lng}, ${lat}
+            </div>
+          `,
+          offset: new AMap.Pixel(0, -28)
+        });
+
+        marker.on("click", function () {
+          infoWindow.open(map, marker.getPosition());
+        });
+
+        const circle = new AMap.Circle({
+          center: new AMap.LngLat(lng, lat),
+          radius: radius,
+          strokeColor: "#ff0000",
+          strokeWeight: 2,
+          strokeOpacity: 0.8,
+          fillColor: "#ff0000",
+          fillOpacity: 0.15,
+          zIndex: 50
+        });
+
+        map.add(circle);
+
+        markers.push(marker);
+        circles.push(circle);
+      });
+
+      updateLabels();
+    }
+
     map.on("click", function(e) {
       if (stores.length === 0) {
         alert("请先点击“检测覆盖范围”");
@@ -249,14 +338,14 @@
         position: clickLngLat,
         map: map,
         icon: "https://webapi.amap.com/theme/v1.3/markers/n/mark_b.png",
-        offset: new AMap.Pixel(-10, -28)
+        偏移量:newAMap.Pixel(-10, -28)
       });
 
-      let nearestStore = null;
-      let nearestDistance = Infinity;
+      let 最近商店 = 空;
+      let 最近距离 = Infinity;
 
-      stores.forEach(store => {
-        const distance = AMap.GeometryUtil.distance(
+      商店.遍历(商店 => {
+        const 距离 = AMap.GeometryUtil.距离(
           clickLngLat,
           new AMap.LngLat(store.lng, store.lat)
         );
@@ -267,21 +356,21 @@
         }
       });
 
-      const radius = Number(document.getElementById("radius").value);
+      const radius = Number(document.getElementById(((“radius”))).value);
       const distanceText = Math.round(nearestDistance);
 
       if (nearestDistance < radius) {
         document.getElementById("result").innerHTML =
-          "结果：不建议<br>" +
+          “结果：不建议<br>” +
           "最近门店：" + nearestStore.name + "<br>" +
           "距离：" + distanceText + " 米<br>" +
-          "原因：落入 " + radius + " 米保护范围";
-      } else {
+          “原因：落入 “ + radius + ” 米保护范围”;
+      } 否则 {
         document.getElementById("result").innerHTML =
           "结果：距离上可能符合<br>" +
           "最近门店：" + nearestStore.name + "<br>" +
           "距离：" + distanceText + " 米<br>" +
-          "说明：未落入 " + radius + " 米保护范围";
+          “说明：未落入 “ + radius + ” 米保护范围”;
       }
     });
   </script>

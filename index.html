@@ -10,7 +10,6 @@
       height: 100%;
       margin: 0;
     }
-
     #panel {
       position: absolute;
       top: 15px;
@@ -22,16 +21,14 @@
       box-shadow: 0 2px 10px #999;
       font-size: 14px;
     }
-
     input, button {
       height: 30px;
       margin: 4px;
     }
-
     #result {
       margin-top: 8px;
       line-height: 1.6;
-      max-width: 280px;
+      max-width: 300px;
     }
   </style>
 
@@ -57,7 +54,7 @@
     </div>
 
     <div>
-      半径：
+      保护半径：
       <input id="radius" value="700" /> 米
     </div>
 
@@ -135,16 +132,22 @@
       const keyword = document.getElementById("keyword").value;
       const radius = Number(document.getElementById("radius").value);
 
-      document.getElementById("result").innerHTML = "正在搜索，请稍等...";
+      document.getElementById("result").innerHTML = "正在定位地点...";
 
       const placeSearch = new AMap.PlaceSearch({
-        pageSize: 50,
+        pageSize: 1,
         pageIndex: 1
       });
 
+      // 第一步：先定位你输入的地点，比如“鹤壁市”或“鹤壁市湘江中学”
       placeSearch.search(place, function(status, placeResult) {
-        if (status !== "complete" || !placeResult.poiList || placeResult.poiList.pois.length === 0) {
-          alert("没有找到这个地点");
+        if (
+          status !== "complete" ||
+          !placeResult.poiList ||
+          !placeResult.poiList.pois ||
+          placeResult.poiList.pois.length === 0
+        ) {
+          alert("没有找到这个地点，请换一个更准确的名称");
           document.getElementById("result").innerHTML = "没有找到这个地点";
           return;
         }
@@ -153,7 +156,7 @@
         const targetLng = targetPoi.location.lng;
         const targetLat = targetPoi.location.lat;
 
-        map.setZoomAndCenter(15, [targetLng, targetLat]);
+        map.setZoomAndCenter(13, [targetLng, targetLat]);
 
         placeMarker = new AMap.Marker({
           position: [targetLng, targetLat],
@@ -163,86 +166,99 @@
           title: targetPoi.name
         });
 
+        document.getElementById("result").innerHTML = "已定位，正在搜索周边门店...";
+
         const storeSearch = new AMap.PlaceSearch({
-          city: place,
-          citylimit: false,
           pageSize: 50,
-          pageIndex: 1
+          pageIndex: 1,
+          citylimit: false
         });
 
-        storeSearch.search(keyword, function(status, result) {
-          if (status !== "complete" || !result.poiList || !result.poiList.pois) {
-            alert("没有搜到门店，请检查品牌名称");
-            document.getElementById("result").innerHTML = "没有搜到门店";
-            return;
+        // 第二步：搜索该地点周边50公里内的门店
+        storeSearch.searchNearBy(
+          keyword,
+          [targetLng, targetLat],
+          50000,
+          function(status, result) {
+            if (
+              status !== "complete" ||
+              !result.poiList ||
+              !result.poiList.pois ||
+              result.poiList.pois.length === 0
+            ) {
+              alert("周边没有搜到门店，可以换一个地点或品牌名称");
+              document.getElementById("result").innerHTML = "周边没有搜到门店";
+              return;
+            }
+
+            const pois = result.poiList.pois;
+
+            pois.forEach(poi => {
+              const lng = poi.location.lng;
+              const lat = poi.location.lat;
+
+              stores.push({
+                name: poi.name,
+                address: poi.address,
+                lng: lng,
+                lat: lat
+              });
+
+              const marker = new AMap.Marker({
+                position: [lng, lat],
+                title: poi.name,
+                map: map,
+                icon: new AMap.Icon({
+                  image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png",
+                  size: new AMap.Size(20, 28),
+                  imageSize: new AMap.Size(20, 28)
+                }),
+                offset: new AMap.Pixel(-10, -28)
+              });
+
+              const infoWindow = new AMap.InfoWindow({
+                content: `
+                  <div style="font-size:14px;line-height:1.6;">
+                    <b>${poi.name}</b><br/>
+                    地址：${poi.address || "暂无地址"}<br/>
+                    经纬度：${lng}, ${lat}
+                  </div>
+                `,
+                offset: new AMap.Pixel(0, -28)
+              });
+
+              marker.on("click", function () {
+                infoWindow.open(map, marker.getPosition());
+              });
+
+              const circle = new AMap.Circle({
+                center: new AMap.LngLat(lng, lat),
+                radius: radius,
+                strokeColor: "#ff0000",
+                strokeWeight: 2,
+                strokeOpacity: 0.8,
+                fillColor: "#ff0000",
+                fillOpacity: 0.15,
+                zIndex: 50
+              });
+
+              map.add(circle);
+
+              markers.push(marker);
+              circles.push(circle);
+            });
+
+            map.setFitView([placeMarker, ...markers]);
+            updateLabels();
+
+            document.getElementById("result").innerHTML =
+              "已定位：" + targetPoi.name + "<br>" +
+              "已找到 " + stores.length + " 个“" + keyword + "”。<br>" +
+              "红色箭头是门店，蓝色箭头是你搜索的位置。<br>" +
+              "放大地图后会显示门店名称。<br>" +
+              "点击地图任意位置，可检测是否落入保护圈。";
           }
-
-          const pois = result.poiList.pois;
-
-          pois.forEach(poi => {
-            const lng = poi.location.lng;
-            const lat = poi.location.lat;
-
-            stores.push({
-              name: poi.name,
-              address: poi.address,
-              lng: lng,
-              lat: lat
-            });
-
-            const marker = new AMap.Marker({
-              position: [lng, lat],
-              title: poi.name,
-              map: map,
-              icon: new AMap.Icon({
-                image: "https://webapi.amap.com/theme/v1.3/markers/n/mark_r.png",
-                size: new AMap.Size(20, 28),
-                imageSize: new AMap.Size(20, 28)
-              }),
-              offset: new AMap.Pixel(-10, -28)
-            });
-
-            const infoWindow = new AMap.InfoWindow({
-              content: `
-                <div style="font-size:14px;line-height:1.6;">
-                  <b>${poi.name}</b><br/>
-                  地址：${poi.address || "暂无地址"}<br/>
-                  经纬度：${lng}, ${lat}
-                </div>
-              `,
-              offset: new AMap.Pixel(0, -28)
-            });
-
-            marker.on("click", function () {
-              infoWindow.open(map, marker.getPosition());
-            });
-
-            const circle = new AMap.Circle({
-              center: new AMap.LngLat(lng, lat),
-              radius: radius,
-              strokeColor: "#ff0000",
-              strokeWeight: 2,
-              strokeOpacity: 0.8,
-              fillColor: "#ff0000",
-              fillOpacity: 0.15,
-              zIndex: 50
-            });
-
-            map.add(circle);
-
-            markers.push(marker);
-            circles.push(circle);
-          });
-
-          updateLabels();
-
-          document.getElementById("result").innerHTML =
-            "已定位：" + targetPoi.name + "<br>" +
-            "已找到 " + stores.length + " 个“" + keyword + "”。<br>" +
-            "红色箭头是门店，蓝色箭头是你搜索的位置。<br>" +
-            "放大地图后会显示门店名称。<br>" +
-            "点击地图任意位置，可检测是否落入保护圈。";
-        });
+        );
       });
     }
 
